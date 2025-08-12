@@ -273,16 +273,16 @@ class LeggedRobot(BaseTask):
 
         # (4) env走出地形的边界
         if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "out_of_border", False):
-            out_border = self.terrain.in_terrain_range(self.root_states[:, :3], device=self.device).logical_not()
-            self.reset_buf |= out_border
-            termination_counts["out_border"] = (out_border.sum().item() / self.num_envs) * 100
+            self.out_border = self.terrain.in_terrain_range(self.root_states[:, :3], device=self.device).logical_not()
+            self.reset_buf |= self.out_border
+            termination_counts["out_border"] = (self.out_border.sum().item() / self.num_envs) * 100
             # print(f'[legged_robot] termination_counts out_border (%): {termination_counts["out_border"]}]')
 
         # (5) base的z方向线速度 < -5 （即跌落）# 或 重力投影 为 Z轴向上（因摔倒恢复训练，需关闭这个，避免刚重置就终止了）
         if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "fall_down", False):
-            fall_down = (self.root_states[:, 9] < -5.)  #  | (self.projected_gravity[:, 2] > 0.)
-            self.reset_buf |= fall_down
-            termination_counts["fall_down"] = (fall_down.sum().item() / self.num_envs) * 100
+            self.fall_down = (self.root_states[:, 9] < -5.)  #  | (self.projected_gravity[:, 2] > 0.)
+            self.reset_buf |= self.fall_down
+            termination_counts["fall_down"] = (self.fall_down.sum().item() / self.num_envs) * 100
             # print(f'[legged_robot] termination_counts fall_down (%): {termination_counts["fall_down"]}]')
 
     def reset_idx(self, env_ids):
@@ -1579,7 +1579,12 @@ class LeggedRobot(BaseTask):
 
     def _reward_termination(self):
         # Terminal reward / penalty
-        return self.reset_buf * ~self.time_out_buf
+        rewards = self.reset_buf * ~self.time_out_buf
+        if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "out_of_border", False):
+            rewards * ~self.out_border
+        if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "fall_down", False):
+            rewards * ~self.fall_down
+        return rewards
 
     # --- feet contact ---
     def _reward_feet_contact_forces(self):
@@ -1587,23 +1592,25 @@ class LeggedRobot(BaseTask):
         return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
     
     def _reward_feet_stumble(self):
-        # 惩罚 四足接触到垂直表面
+        # 惩罚 四足接触到垂直表面 (只在上楼梯，discrete_obstacle, pit地形)
         # 判定条件： XY方向 足部接触力 与 Z轴接触力 之比 > 5
         rew = torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) > \
-             5 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
+             4 * torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
         rew = rew * (self.terrain_levels > 3)
         rew = rew.float()
         stumble_reward = torch.zeros_like(rew)
         stumble_reward[self.stairsup_start_idx: self.stairsup_end_idx] = rew[self.stairsup_start_idx: self.stairsup_end_idx]
+        stumble_reward[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx] = rew[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx]
         stumble_reward[self.pit_start_idx: self.gap_end_idx] = rew[self.pit_start_idx: self.gap_end_idx]
         return stumble_reward
     def _reward_feet_stumble_up(self):
         rew = torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) > \
-             4 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
+             4 * torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
         rew = rew * (self.terrain_levels > 3)
         rew = rew.float()
         stumble_reward = torch.zeros_like(rew)
         stumble_reward[self.stairsup_start_idx: self.stairsup_end_idx] = rew[self.stairsup_start_idx: self.stairsup_end_idx]
+        stumble_reward[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx] = rew[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx]
         stumble_reward[self.pit_start_idx: self.gap_end_idx] = rew[self.pit_start_idx: self.gap_end_idx]
         return stumble_reward * torch.clamp(-self.projected_gravity[:, 2], 0, 1)
 
