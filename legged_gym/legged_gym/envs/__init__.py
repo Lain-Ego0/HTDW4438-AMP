@@ -42,6 +42,7 @@ else:
     from .aliengo.aliengo_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
 from .aliengo.aliengo_stairs_config import AlienGoStairsCfg, AlienGoStairsCfgPPO
 from .aliengo.aliengo_recover_config import AlienGoRoughRecoverCfg, AlienGoRoughRecoverCfgPPO
+from .aliengo.aliengo_lidar_config import AlienGoFlatLidarCfg, AlienGoFlatLidarCfgPPO
 
 import os
 
@@ -51,5 +52,6 @@ task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
 task_registry.register( "a1_stairs", LeggedRobot, A1StairsCfg(), A1StairsCfgPPO() )
 task_registry.register( "go1", LeggedRobot, Go1RoughCfg(), Go1RoughCfgPPO() )
 task_registry.register( "aliengo", LeggedRobot, AlienGoRoughCfg(), AlienGoRoughCfgPPO() )
+task_registry.register("aliengo_lidar", LeggedRobot, AlienGoFlatLidarCfg(), AlienGoFlatLidarCfgPPO())
 task_registry.register( "aliengo_stairs", LeggedRobot, AlienGoStairsCfg(), AlienGoStairsCfgPPO() )
 task_registry.register( "aliengo_recover", LeggedRobot, AlienGoRoughRecoverCfg(), AlienGoRoughRecoverCfgPPO() )

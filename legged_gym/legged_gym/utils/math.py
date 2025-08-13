@@ -65,3 +65,43 @@ def random_quat(U):
     q4 = torch.sqrt(u1) * torch.cos(2 * torch.pi * u3)
     Q = torch.cat([q1, q2, q3, q4], dim=-1)
     return Q
+
+
+def farthest_point_sampling(point_cloud, sample_size):
+    """
+    Sample points using the farthest point sampling algorithm
+    Args:
+        point_cloud: Tensor of shape (num_envs, 1, num_points, 3)
+        sample_size: Number of points to sample
+    Returns:
+        Downsampled point cloud of shape (num_envs, 1, sample_size, 3)
+    """
+    num_envs, _, num_points, _ = point_cloud.shape
+    device = point_cloud.device
+    result = []
+
+    for env_idx in range(num_envs):
+        points = point_cloud[env_idx, 0]  # (num_points, 3)
+
+        # Initialize with a random point
+        sampled_indices = torch.zeros(sample_size, dtype=torch.long, device=device)
+        sampled_indices[0] = torch.randint(0, num_points, (1,), device=device)
+
+        # Calculate distances
+        distances = torch.norm(points - points[sampled_indices[0]], dim=1)
+
+        # Iteratively select farthest points
+        for i in range(1, sample_size):
+            # Select the farthest point
+            sampled_indices[i] = torch.argmax(distances)
+
+            # Update distances
+            if i < sample_size - 1:
+                new_distances = torch.norm(points - points[sampled_indices[i]], dim=1)
+                distances = torch.min(distances, new_distances)
+
+        # Get the sampled points
+        sampled_points = points[sampled_indices]
+        result.append(sampled_points.unsqueeze(0))  # Add sensor dimension back
+
+    return torch.stack(result)

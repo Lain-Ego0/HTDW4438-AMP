@@ -30,6 +30,7 @@
 * flat terrain
   - `python legged_gym/legged_gym/scripts/train.py --task aliengo --headless`
   - `python legged_gym/legged_gym/scripts/train.py --task aliengo_recover --headless`
+  - `python legged_gym/legged_gym/scripts/train.py --task aliengo_lidar --headless`
 * stairs terrain
   - change the resume flat terrain log path in `legged_gym/legged_gym/envs/aliengo/aliengo_stairs_config.py` lines 192 `load_run = ...` and change `resume = True`
   - `python legged_gym/legged_gym/scripts/train.py --task aliengo_stairs --headless`
