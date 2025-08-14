@@ -39,22 +39,27 @@ from isaacgym import gymtorch, gymapi, gymutil
 
 import math
 import torch
+import warp
+import trimesh
 from torch import Tensor
 from typing import Tuple, Dict
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.utils.terrain import Terrain
-from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float
+from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float, farthest_point_sampling
 from legged_gym.utils.helpers import class_to_dict
 from legged_gym.utils.math import random_quat
 from .legged_robot_config import LeggedRobotCfg, USING_AMP
 # from rsl_rl.datasets.motion_loader import AMPLoader
 
+from LidarSensor.lidar_sensor import LidarSensor
+from LidarSensor.sensor_config.lidar_sensor_config import LidarConfig
+
 class LeggedRobot(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_params, physics_engine, sim_device, headless):
         """ Parses the provided config file,
-            calls create_sim() (which creates, simulation, terrain and environments),
+            calls create_sim() (which creates simulation, terrain and environments),
             initilizes pytorch buffers used during training
 
         Args:
@@ -99,7 +104,8 @@ class LeggedRobot(BaseTask):
         self._parse_cfg(self.cfg)
         # 2.2 调用父类 BaseTask 的初始化：
         #   获取 env_cfg 中的 envs个数、obs维度等
-        #   创建 envs, sim, viewer
+        #   调用 create_sim()，创建 sim, terrain and envs
+        #   创建 viewer
         super().__init__(self.cfg, sim_params, physics_engine, sim_device, headless)
         self.num_one_step_obs = self.cfg.env.num_one_step_observations  # 45
         self.num_one_step_privileged_obs = self.cfg.env.num_one_step_privileged_obs  # 45 + 3 + 3 + 187
@@ -115,6 +121,43 @@ class LeggedRobot(BaseTask):
         self._prepare_reward_function()
         self.init_done = True
         # ------ 初始化完成 ------
+
+        # 3. 使用激光雷达
+        if hasattr(self.cfg, "lidar") and getattr(self.cfg.lidar, "use_lidar", False):
+            # 3.1 配置 LiDAR sensor 参数
+            self.lidar_cfg = LidarConfig(
+                sensor_type=self.cfg.lidar.sensor_type,
+                dt=self.cfg.lidar.dt,
+                num_sensors=self.cfg.lidar.num_sensors,
+                update_frequency=self.cfg.lidar.update_frequency,
+                max_range=self.cfg.lidar.max_range,
+                enable_sensor_noise=self.cfg.lidar.enable_sensor_noise,
+                random_distance_noise=self.cfg.lidar.random_distance_noise,
+                pixel_dropout_prob=self.cfg.lidar.pixel_dropout_prob,
+                nominal_position=self.cfg.lidar.nominal_position,
+                nominal_orientation_euler_deg=self.cfg.lidar.nominal_orientation_euler_deg,
+                randomize_placement=self.cfg.lidar.randomize_placement,
+            )
+
+            # 3.2 初始化
+            self.sim_time = 0
+            self.lidar_update_time = 0
+            self.lidar_state_update_time = 0
+            self.selected_env_idx = self.cfg.lidar.selected_env_idx  # debug时显示rays的env索引
+            # self.save_lidar_data = self.cfg.lidar.save_data
+            # self.save_lidar_interval = self.cfg.lidar.save_interval
+            # self.save_time = 0
+            # self.last_save_time = 0
+
+            # 3.3 将 isaacgym 中创建的地形转换为 Warp 格式，使得激光雷达能够准确地与环境交互。并创建所需的一些数据tensor
+            warp.init()  # initialize warp after sim
+            self.create_warp_env()
+            self.create_warp_tensor()
+            # 3.4 创建 LiDAR 传感器
+            self.lidar = LidarSensor(env=self.warp_tensor_dict, env_cfg=None, sensor_cfg=self.lidar_cfg, num_sensors=1, device=self.device)
+            # 获取 lidar 数据
+            # MID360: (num_envs, num_sensors, 20000, 1, 3), (num_envs, num_sensors, 20000, 1)
+            self.lidar_tensor, self.lidar_dist_tensor = self.lidar.update()
 
         # if self.cfg.env.reference_state_initialization:
         #     self.amp_loader = AMPLoader(motion_files=self.cfg.env.amp_motion_files, device=self.device, time_between_frames=self.dt)
@@ -183,6 +226,13 @@ class LeggedRobot(BaseTask):
             env_ids: 需要重置的env的 ID (num_envs_,)
             terminal_amp_states: 需要重置的 env 的 AMP观测 (num_envs_, 30)
         """
+        if hasattr(self.cfg, "lidar") and getattr(self.cfg.lidar, "use_lidar", False):
+            self.sim_time += self.dt
+            self.lidar_update_time += self.dt
+            self.lidar_state_update_time += self.dt
+        self.last_base_lin_vel = self.base_lin_vel.clone()
+        self.last_base_ang_vel = self.base_ang_vel.clone()
+
         # 1. 从 Isaac Gym 仿真器中刷新各种状态张量，确保数据是最新的
         self.gym.refresh_actor_root_state_tensor(self.sim)   # 刷新 base的状态 张量
         self.gym.refresh_net_contact_force_tensor(self.sim)  # 刷新 关节接触力 张量
@@ -194,10 +244,35 @@ class LeggedRobot(BaseTask):
         self.common_step_counter += 1  # env_step数 +1
 
         # 3. 更新机器人的姿态、速度和重力投影信息
+        self.base_pose = self.root_states[:, :7]
+        self.base_pos = self.root_states[:, 0:3]
         self.base_quat[:] = self.root_states[:, 3:7]  # 更新机器人 base 的旋转四元数（世界坐标系）
         self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])   # 更新机器人 base 的 线速度（body坐标系）
         self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])  # 更新机器人 base 的 角速度（body坐标系）
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)  # 更新投影到机器人坐标系的 重力向量（body坐标系）
+        self.base_lin_acc = (self.root_states[:, 7:10] - self.last_base_lin_vel) / self.dt  # base的 线加速度（暂时没用到）
+        self.base_ang_acc = (self.root_states[:, 10:13] - self.last_base_ang_vel) / self.dt
+
+        if hasattr(self.cfg, "lidar") and getattr(self.cfg.lidar, "use_lidar", False):
+            # update lidar position and orientation
+            lidar_pos = self.base_pos + quat_apply(self.base_quat, self.lidar_translation)
+            lidar_quat = quat_mul(self.base_quat, self.lidar_offset_quat)
+            self.lidar_pos_tensor[:, :] = lidar_pos
+            self.lidar_quat_tensor[:, :] = lidar_quat
+
+            # update lidar data
+            # MID360: 点云 (num_envs, num_sensors, 20000, 1, 3), 距离 (num_envs, num_sensors, 20000, 1)
+            self.lidar_tensor, self.lidar_dist_tensor = self.lidar.update()
+            # (num_envs, num_sensors, 2000, 3)
+            self.downsampled_lidar_cloud = farthest_point_sampling(self.lidar_tensor.view(self.num_envs, self.lidar_cfg.num_sensors,
+                                                                                          self.lidar_tensor.shape[2], 3), sample_size=2000)
+            # print(f"LiDAR distance range: {self.lidar_dist_tensor.min():.2f} - {self.lidar_dist_tensor.max():.2f}")
+
+            # debug LiDAR rays in viewer
+            if self.cfg.lidar.debug_vis and (self.lidar_update_time > (1 / self.lidar_cfg.update_frequency)):
+                self.gym.clear_lines(self.viewer)
+                self.draw_lidar_vis()
+                self.lidar_update_time = 0
 
         # 四足的 位置 和 线速度（世界坐标系）
         self.feet_pos = self.rigid_body_states.view(self.num_envs, self.num_bodies, 13)[:, self.feet_indices, 0:3]
@@ -273,16 +348,16 @@ class LeggedRobot(BaseTask):
 
         # (4) env走出地形的边界
         if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "out_of_border", False):
-            out_border = self.terrain.in_terrain_range(self.root_states[:, :3], device=self.device).logical_not()
-            self.reset_buf |= out_border
-            termination_counts["out_border"] = (out_border.sum().item() / self.num_envs) * 100
+            self.out_border = self.terrain.in_terrain_range(self.root_states[:, :3], device=self.device).logical_not()
+            self.reset_buf |= self.out_border
+            termination_counts["out_border"] = (self.out_border.sum().item() / self.num_envs) * 100
             # print(f'[legged_robot] termination_counts out_border (%): {termination_counts["out_border"]}]')
 
         # (5) base的z方向线速度 < -5 （即跌落）# 或 重力投影 为 Z轴向上（因摔倒恢复训练，需关闭这个，避免刚重置就终止了）
         if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "fall_down", False):
-            fall_down = (self.root_states[:, 9] < -5.)  #  | (self.projected_gravity[:, 2] > 0.)
-            self.reset_buf |= fall_down
-            termination_counts["fall_down"] = (fall_down.sum().item() / self.num_envs) * 100
+            self.fall_down = (self.root_states[:, 9] < -5.)  #  | (self.projected_gravity[:, 2] > 0.)
+            self.reset_buf |= self.fall_down
+            termination_counts["fall_down"] = (self.fall_down.sum().item() / self.num_envs) * 100
             # print(f'[legged_robot] termination_counts fall_down (%): {termination_counts["fall_down"]}]')
 
     def reset_idx(self, env_ids):
@@ -463,9 +538,11 @@ class LeggedRobot(BaseTask):
     def create_sim(self):
         """ Creates simulation, terrain and evironments
         """
+        # 1. 创建 sim
         self.up_axis_idx = 2 # 2 for z, 1 for y -> adapt gravity accordingly
         self.sim = self.gym.create_sim(self.sim_device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
-        # 创建 terrain
+
+        # 2. 创建 terrain
         mesh_type = self.cfg.terrain.mesh_type
         if mesh_type in ['heightfield', 'trimesh']:
             self.terrain = Terrain(self.cfg.terrain, self.num_envs)
@@ -478,7 +555,8 @@ class LeggedRobot(BaseTask):
             self._create_trimesh()
         elif mesh_type is not None:
             raise ValueError("Terrain mesh type not recognised. Allowed types are [None, plane, heightfield, trimesh]")
-        # 创建 agents
+
+        # 3. 创建 agents
         self._create_envs()
 
     def set_camera(self, position, lookat):
@@ -874,10 +952,10 @@ class LeggedRobot(BaseTask):
         # If the tracking reward is above 80% of the maximum, increase the range of commands
         if (torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > 0.8 * self.reward_scales["tracking_lin_vel"]):
             # [-2, 2] ==> [-1.0, 1.5]
-            self.command_ranges["lin_vel_x"][0] = np.clip(self.command_ranges["lin_vel_x"][0] - 0.1, -self.cfg.commands.max_backward_curriculum, 0.)
-            self.command_ranges["lin_vel_x"][1] = np.clip(self.command_ranges["lin_vel_x"][1] + 0.1, 0., self.cfg.commands.max_forward_curriculum)
-            self.command_ranges["lin_vel_y"][0] = np.clip(self.command_ranges["lin_vel_y"][0] - 0.1, -self.cfg.commands.max_lat_curriculum, 0.)
-            self.command_ranges["lin_vel_y"][1] = np.clip(self.command_ranges["lin_vel_y"][1] + 0.1, 0., self.cfg.commands.max_lat_curriculum)
+            self.command_ranges["lin_vel_x"][0] = np.clip(self.command_ranges["lin_vel_x"][0] - 0.2, -self.cfg.commands.max_backward_curriculum, 0.)
+            self.command_ranges["lin_vel_x"][1] = np.clip(self.command_ranges["lin_vel_x"][1] + 0.2, 0., self.cfg.commands.max_forward_curriculum)
+            self.command_ranges["lin_vel_y"][0] = np.clip(self.command_ranges["lin_vel_y"][0] - 0.2, -self.cfg.commands.max_lat_curriculum, 0.)
+            self.command_ranges["lin_vel_y"][1] = np.clip(self.command_ranges["lin_vel_y"][1] + 0.2, 0., self.cfg.commands.max_lat_curriculum)
 
 
     def _get_noise_scale_vec(self, cfg):
@@ -948,7 +1026,7 @@ class LeggedRobot(BaseTask):
         self.common_step_counter = 0  # 步数计数器
         self.extras = {}  # 额外数据字典
         self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)
-        self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
+        self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))  # [0., 0., -1.]: 重力轴方向
         self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))    # 机器人的前进方向（base坐标系）
         # 初始化 torques
         self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)  # (num_envs, 12)
@@ -964,13 +1042,22 @@ class LeggedRobot(BaseTask):
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.last_torques = torch.zeros_like(self.torques)
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])  # base的 线速度 + 角速度
+
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
+
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         self.last_contacts = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device, requires_grad=False)
+
+        self.base_pose = self.root_states[:, 0:7]
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
+        self.last_base_lin_vel = self.base_lin_vel.clone()
+        self.last_base_ang_vel = self.base_ang_vel.clone()
+
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
+        self.last_projected_gravity = self.projected_gravity.clone()
+
         if self.cfg.terrain.measure_heights:
             self.height_points = self._init_height_points()
         self.measured_heights = self._get_heights()
@@ -1005,7 +1092,6 @@ class LeggedRobot(BaseTask):
                 (self.num_envs, self.num_actions),
                 device=self.device,
             )
-        
         
         #randomize kp, kd, motor strength
         self.Kp_factors = torch.ones(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
@@ -1440,6 +1526,131 @@ class LeggedRobot(BaseTask):
 
         return feet_height
 
+    def create_warp_env(self):
+        terrain_mesh = trimesh.Trimesh(vertices=self.terrain.vertices, faces=self.terrain.triangles)
+        # save terrain mesh
+        transform = np.zeros((3,))
+        transform[0] = -self.terrain.cfg.border_size
+        transform[1] = -self.terrain.cfg.border_size
+        transform[2] = 0.0
+        translation = trimesh.transformations.translation_matrix(transform)
+        terrain_mesh.apply_transform(translation)
+
+        if self.cfg.lidar.consider_self_occlusion:
+            # add obstacles for self-occlusion
+            robots_resource_dir = os.path.join(LEGGED_GYM_ROOT_DIR, "resources", "robots", "aliengo")
+            robot_path = os.path.join(robots_resource_dir, "robot_combined.stl")
+
+            robot_mesh = trimesh.load(robot_path)
+            transaltion = np.zeros((3,))
+            transaltion[0] = self.root_states[0, 0]
+            transaltion[1] = self.root_states[0, 1]
+            transaltion[2] = self.root_states[0, 2]
+            translation = trimesh.transformations.translation_matrix(transaltion)
+            robot_mesh.apply_transform(translation)
+
+            combined_mesh = trimesh.util.concatenate([terrain_mesh, robot_mesh])
+            # save combined mesh
+            combined_mesh.export(os.path.join(robots_resource_dir, "robot_terrain_combined.stl"))
+        else:
+            combined_mesh = terrain_mesh
+
+        vertices = combined_mesh.vertices
+        triangles = combined_mesh.faces
+        vertex_tensor = torch.tensor(
+            vertices,
+            device=self.device,
+            requires_grad=False,
+            dtype=torch.float32,
+        )
+
+        # if none type in vertex_tensor
+        if vertex_tensor.any() is None:
+            print("vertex_tensor is None")
+        vertex_vec3_array = warp.from_torch(vertex_tensor, dtype=warp.vec3)
+        faces_warp_int32_array = warp.from_numpy(triangles.flatten(), dtype=warp.int32, device=self.device)
+
+        self.warp_meshes = warp.Mesh(points=vertex_vec3_array, indices=faces_warp_int32_array)
+        self.mesh_ids = warp.array([self.warp_meshes.id], dtype=warp.uint64)
+
+    def create_warp_tensor(self):
+        self.warp_tensor_dict = {}
+        # (num_envs, num_sensors, num_ver_line, num_hor_line, 3)
+        self.lidar_tensor = torch.zeros(
+            (
+                self.num_envs,
+                self.lidar_cfg.num_sensors,  # 1
+                self.lidar_cfg.vertical_line_num,  # 50
+                self.lidar_cfg.horizontal_line_num,  # 80
+                3,  # 3
+            ),
+            device=self.device,
+            requires_grad=False,
+        )
+        # (num_envs, num_sensors, num_ver_line, num_hor_line)
+        self.lidar_dist_tensor = torch.zeros(
+            (
+                self.num_envs,
+                self.lidar_cfg.num_sensors,  # 1
+                self.lidar_cfg.vertical_line_num,  # 50
+                self.lidar_cfg.horizontal_line_num,  # 80
+            ),
+            device=self.device,
+            requires_grad=False,
+        )
+
+        self.lidar_pos_tensor = torch.zeros_like(self.root_states[:, 0:3])
+        self.lidar_quat_tensor = torch.zeros_like(self.root_states[:, 3:7])
+
+        self.lidar_translation = torch.tensor(self.lidar_cfg.nominal_position, device=self.device).repeat((self.num_envs, 1))
+        rpy_offset = torch.tensor(self.lidar_cfg.nominal_orientation_euler_deg, device=self.device)
+        self.lidar_offset_quat = quat_from_euler_xyz(rpy_offset[0], rpy_offset[1], rpy_offset[2]).repeat((self.num_envs, 1))
+
+        self.warp_tensor_dict["lidar_dist_tensor"] = self.lidar_dist_tensor
+        self.warp_tensor_dict['device'] = self.device
+        self.warp_tensor_dict['num_envs'] = self.num_envs
+        self.warp_tensor_dict['num_sensors'] = self.lidar_cfg.num_sensors
+        self.warp_tensor_dict['lidar_pos_tensor'] = self.lidar_pos_tensor
+        self.warp_tensor_dict['lidar_quat_tensor'] = self.lidar_quat_tensor
+        self.warp_tensor_dict['mesh_ids'] = self.mesh_ids
+
+    def draw_lidar_vis(self):
+        """ Draws visualizations for dubugging (slows down simulation a lot).
+            Default behaviour: draws height measurement points
+        """
+        # draw height lines
+
+        # self.gym.refresh_rigid_body_state_tensor(self.sim)
+        sphere_geom = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 0, 0))
+
+        if self.lidar_cfg.pointcloud_in_world_frame:
+            self.global_pixels = self.downsampled_lidar_cloud
+            for i in range(self.selected_env_idx, self.selected_env_idx + 1):
+                for j in range(int(self.global_pixels.shape[2])):
+                    for k in range(self.global_pixels.shape[3]):
+                        x = self.global_pixels[i, 0, j, k, 0]  # +self.root_states[:1, 0]
+                        y = self.global_pixels[i, 0, j, k, 1]
+                        z = self.global_pixels[i, 0, j, k, 2]
+                        sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
+                        gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
+        else:
+            self.local_pixels_downsampled = self.downsampled_lidar_cloud.reshape(-1, 3)
+            self.lidar_axis = self.lidar_pos_tensor[:, :]
+            pixels = self.local_pixels_downsampled.view(self.num_envs, -1, 3)
+            pixels_num = pixels.shape[1]
+            lidar_axis_shaped = self.lidar_axis.unsqueeze(1).repeat(1, pixels_num, 1).view(self.num_envs, -1, 3)
+            lidar_quat = self.lidar_quat_tensor.unsqueeze(1).repeat(1, pixels_num, 1).view(self.num_envs, -1, 4)
+            self.global_pixels = lidar_axis_shaped + quat_apply(lidar_quat, pixels)
+
+            self.global_pixels.view(self.num_envs, -1, 3)
+            for i in range(self.selected_env_idx, self.selected_env_idx + 1):
+                for j in range(0, self.global_pixels.shape[1]):
+                    x = self.global_pixels[i, j, 0]
+                    y = self.global_pixels[i, j, 1]
+                    z = self.global_pixels[i, j, 2]
+                    sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
+                    gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
+
     # ------------ reward functions ------------
     def _reward_tracking_lin_vel(self):
         # 奖励 跟踪 commands 中XY方向的 线速度
@@ -1579,7 +1790,12 @@ class LeggedRobot(BaseTask):
 
     def _reward_termination(self):
         # Terminal reward / penalty
-        return self.reset_buf * ~self.time_out_buf
+        rewards = self.reset_buf * ~self.time_out_buf
+        if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "out_of_border", False):
+            rewards * ~self.out_border
+        if hasattr(self.cfg, "termination") and getattr(self.cfg.termination, "fall_down", False):
+            rewards * ~self.fall_down
+        return rewards
 
     # --- feet contact ---
     def _reward_feet_contact_forces(self):
@@ -1587,23 +1803,25 @@ class LeggedRobot(BaseTask):
         return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
     
     def _reward_feet_stumble(self):
-        # 惩罚 四足接触到垂直表面
+        # 惩罚 四足接触到垂直表面 (只在上楼梯，discrete_obstacle, pit地形)
         # 判定条件： XY方向 足部接触力 与 Z轴接触力 之比 > 5
         rew = torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) > \
-             5 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
+             4 * torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
         rew = rew * (self.terrain_levels > 3)
         rew = rew.float()
         stumble_reward = torch.zeros_like(rew)
         stumble_reward[self.stairsup_start_idx: self.stairsup_end_idx] = rew[self.stairsup_start_idx: self.stairsup_end_idx]
+        stumble_reward[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx] = rew[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx]
         stumble_reward[self.pit_start_idx: self.gap_end_idx] = rew[self.pit_start_idx: self.gap_end_idx]
         return stumble_reward
     def _reward_feet_stumble_up(self):
         rew = torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) > \
-             4 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
+             4 * torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
         rew = rew * (self.terrain_levels > 3)
         rew = rew.float()
         stumble_reward = torch.zeros_like(rew)
         stumble_reward[self.stairsup_start_idx: self.stairsup_end_idx] = rew[self.stairsup_start_idx: self.stairsup_end_idx]
+        stumble_reward[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx] = rew[self.discreteobstacles_start_idx: self.discreteobstacles_end_idx]
         stumble_reward[self.pit_start_idx: self.gap_end_idx] = rew[self.pit_start_idx: self.gap_end_idx]
         return stumble_reward * torch.clamp(-self.projected_gravity[:, 2], 0, 1)
 

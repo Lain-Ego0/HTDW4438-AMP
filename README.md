@@ -21,11 +21,19 @@
   - `cd rsl_rl && pip install -e .`
   - `cd ../legged_gym && pip install -e .`
 
+5. Install LidarSensor
+
+- `cd LidarSensor && pip install -e .`
+
 ### Usage
 1. Train a policy:
 * flat terrain
   - `python legged_gym/legged_gym/scripts/train.py --task aliengo --headless`
   - `python legged_gym/legged_gym/scripts/train.py --task aliengo_recover --headless`
+  - for lidar:
+      - if consider robot sel-occlusion, should combine the robots' meshes first: `python legged_gym/resources/robots/aliengo/process_body_mesh.py`,
+        then change the `consider_self_occlusion=True` in env configs (暂时自遮挡后的光线追踪有点问题)
+      - `python legged_gym/legged_gym/scripts/train.py --task aliengo_lidar --headless`
 * stairs terrain
   - change the resume flat terrain log path in `legged_gym/legged_gym/envs/aliengo/aliengo_stairs_config.py` lines 192 `load_run = ...` and change `resume = True`
   - `python legged_gym/legged_gym/scripts/train.py --task aliengo_stairs --headless`

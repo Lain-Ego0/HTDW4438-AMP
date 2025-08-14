@@ -133,7 +133,7 @@ class Terrain:
             return step_height
         step_height = calculate_step_height(difficulty)
 
-        discrete_obstacles_height = 0.06 + difficulty * 0.15  # [0.06, 0.075, ..., 0.135, 0.15, ..., 0.195]
+        discrete_obstacles_height = 0.03 + difficulty * 0.1  # [0.03, 0.04, ..., 0.08, 0.09, ..., 0.12]
         stepping_stones_size = 1.5 * (1.05 - difficulty)
         stone_distance = 0.05 if difficulty==0 else 0.1
         gap_size = 1. * difficulty
@@ -185,9 +185,9 @@ class Terrain:
             # 下台阶
             pyramid_stairs_terrain(terrain, step_width=0.30, step_height=step_height, platform_size=3., border_width=1.)
         elif choice < self.proportions[6]:  # 离散障碍物
-            num_rectangles = 20
-            rectangle_min_size = 1.
-            rectangle_max_size = 2.
+            num_rectangles = 50
+            rectangle_min_size = 0.6
+            rectangle_max_size = 1.5
             terrain_utils.discrete_obstacles_terrain(terrain, discrete_obstacles_height, rectangle_min_size, rectangle_max_size, num_rectangles, platform_size=3.)
         elif choice < self.proportions[7]:  # 跳跃石地形
             terrain_utils.stepping_stones_terrain(terrain, stone_size=stepping_stones_size, stone_distance=stone_distance, max_height=0.8, platform_size=4.)
