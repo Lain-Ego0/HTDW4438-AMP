@@ -10,12 +10,12 @@ URDF_FILENAME = f"{LEGGED_GYM_ROOT_DIR}/resources/robots/aliengo/urdf/aliengo.ur
 OUTPUT_DIR = f"{MOTION_FILES_DIR}/mocap_motions_aliengo"
 
 REF_POS_SCALE = 0.825
-INIT_POS = np.array([0, 0, 0.4])
+INIT_POS = np.array([0, 0, 0.5])
 INIT_ROT = np.array([0, 0, 0, 1.0])
 
 SIM_TOE_JOINT_IDS = [8, 15, 22, 29]
 SIM_HIP_JOINT_IDS = [2, 9, 16, 23]
-SIM_ROOT_OFFSET = np.array([0, 0, -0.04])
+SIM_ROOT_OFFSET = np.array([0, 0, 0.06])
 SIM_TOE_OFFSET_LOCAL = [
     np.array([0, -0.03, 0.0]),
     np.array([0, 0.03, 0.0]),

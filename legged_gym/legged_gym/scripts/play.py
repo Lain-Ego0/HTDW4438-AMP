@@ -50,7 +50,6 @@ import json
 from collections import OrderedDict
 
 from legged_gym.utils.helpers import update_class_from_dict
-from legged_gym.envs.base.legged_robot_config import USING_AMP
 
 
 def play(args, x_vel=1.0, y_vel=0.0, yaw_vel=0.0):

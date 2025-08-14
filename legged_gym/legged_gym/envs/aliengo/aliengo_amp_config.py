@@ -29,11 +29,13 @@
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 import math
 import glob
-from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO, MOTION_FILES_DIR, TRAIN_RUNNING
+from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
+from legged_gym.envs.base.legged_robot_config import USING_AMP, MOTION_FILES_DIR, TRAIN_RUNNING
 
-MOTION_FILES = glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/trot*.txt'))
+MOTION_FILES = []
 MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/left*.txt')))
 MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/right*.txt')))
+MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/trot*.txt')))
 if TRAIN_RUNNING:
     MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/pace*.txt')))
     MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/canter*.txt')))
@@ -117,7 +119,7 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
         heading_command = True # if true: compute ang vel command from heading error
 
         class ranges( LeggedRobotCfg.commands.ranges ):
-            lin_vel_x = [-2.0, 2.0] if TRAIN_RUNNING else [-1.0, 1.0]  # min max [m/s]
+            lin_vel_x = [-1.0, 1.0]  # min max [m/s]
             lin_vel_y = [-0.5, 0.5]  # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]  # min max [rad/s]
             heading = [-math.pi, math.pi]
@@ -182,8 +184,8 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
         )
         # 重置时随机设置base的 方向（摔倒恢复模式都设为 [-3.14, 3.14]）
         base_init_rot_range = dict(
-            roll=[-0.2, 0.2],
-            pitch=[-0.2, 0.2],
+            roll=[-0.75, 0.75],
+            pitch=[-0.75, 0.75],
             yaw=[-0.0, 0.0],
         )
         # 重置时随机设置base的 线速度、角速度，默认为x,y,x,rool,pitch,roll方向 [-0.5, 0.5]，若更改则为下面的
@@ -225,7 +227,7 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
             lin_vel_z = -2.0  # base 的 Z 轴线速度 惩罚：防止机身跳跃
             ang_vel_xy = -0.05  # base 的 XY 轴角速度 惩罚：抑制机身翻滚（roll, pitch）
             orientation = -2.0  # base 非水平姿态 惩罚（地面不平时，可减小）
-            base_height = -10.0  # base 目标高度 惩罚
+            base_height = -5.0  # base 目标高度 惩罚
             # joint
             torques = -0.0002  # 关节扭矩过大 惩罚
             torque_limits = -0.0  # 关节扭矩接近极限 惩罚
@@ -235,6 +237,9 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
             hip_pos = -0.2  # 髋关节hip（0,3,6,9）位置与默认位置的偏差 惩罚
             thigh_pose = -0.05
             calf_pose = -0.05
+            # hip_pos = -0.04 if USING_AMP else -0.2
+            # thigh_pose = -0.02 if USING_AMP else -0.1
+            # calf_pose = -0.02 if USING_AMP else -0.1
             dof_pos_limits = -0.0  # 关节位置接近极限 惩罚
             dof_vel_limits = -0.0  # 关节速度接近极限 惩罚
             joint_power = -2e-5  # 关节高功率 惩罚：降低能耗（需平衡运动效率，过高惩罚会导致动作迟缓）
@@ -339,10 +344,10 @@ class AlienGoRoughCfgPPO( LeggedRobotCfgPPO ):
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
 
-        amp_reward_coef = 0.5 * 0.02  # set to 0 means not use amp reward
+        amp_reward_coef = 0.05  # set to 0 means not use amp reward
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = 2000000
-        amp_task_reward_lerp = 0.3
+        amp_task_reward_lerp = 0.5
         amp_discr_hidden_dims = [1024, 512]
 
         min_normalized_std = [0.05, 0.02, 0.05] * 4
