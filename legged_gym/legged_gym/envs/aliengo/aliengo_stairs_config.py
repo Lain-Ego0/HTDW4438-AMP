@@ -178,9 +178,9 @@ class AlienGoStairsCfg( AlienGoRoughCfg ):
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
             orientation = -0.2
-            base_height = -5.0  # -0.0 if USING_AMP else -5.0
+            base_height = -1.0 if USING_AMP else -5.0
             # joint
-            torques = -0.0001
+            torques = -0.0002
             torque_limits = -0.0
             dof_vel = -0.0
             dof_acc = -2.5e-7

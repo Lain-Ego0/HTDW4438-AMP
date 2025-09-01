@@ -484,12 +484,13 @@ class LeggedRobot(BaseTask):
         base_lin_vel = self.base_lin_vel
         base_ang_vel = self.base_ang_vel
         joint_vel = self.dof_vel
-        # z_pos = self.root_states[:, 2:3]
-        # if self.cfg.terrain.measure_heights:
-        #     z_pos = z_pos - torch.mean(self.measured_heights, dim=-1, keepdim=True)
+        z_pos = self.root_states[:, 2:3]
+        if self.cfg.terrain.measure_heights:
+            z_pos = z_pos - torch.mean(self.measured_heights, dim=-1, keepdim=True)
         # return torch.cat((joint_pos, foot_pos, base_lin_vel, base_ang_vel, joint_vel, z_pos), dim=-1)
-        return torch.cat((joint_pos, base_lin_vel, base_ang_vel, joint_vel), dim=-1)
+        # return torch.cat((joint_pos, base_lin_vel, base_ang_vel, joint_vel), dim=-1)
         # return torch.cat((joint_pos, base_ang_vel, joint_vel), dim=-1)
+        return torch.cat((joint_pos, base_ang_vel, joint_vel, z_pos), dim=-1)
         # return torch.cat((joint_pos, base_lin_vel, base_ang_vel, joint_vel, z_pos), dim=-1)
 
     def get_current_obs(self):
@@ -954,10 +955,10 @@ class LeggedRobot(BaseTask):
         # If the tracking reward is above 80% of the maximum, increase the range of commands
         if (torch.mean(self.episode_sums["tracking_lin_vel"][env_ids]) / self.max_episode_length > 0.8 * self.reward_scales["tracking_lin_vel"]):
             # [-2, 2] ==> [-1.0, 1.5]
-            self.command_ranges["lin_vel_x"][0] = np.clip(self.command_ranges["lin_vel_x"][0] - 0.2, -self.cfg.commands.max_backward_curriculum, 0.)
-            self.command_ranges["lin_vel_x"][1] = np.clip(self.command_ranges["lin_vel_x"][1] + 0.2, 0., self.cfg.commands.max_forward_curriculum)
-            self.command_ranges["lin_vel_y"][0] = np.clip(self.command_ranges["lin_vel_y"][0] - 0.2, -self.cfg.commands.max_lat_curriculum, 0.)
-            self.command_ranges["lin_vel_y"][1] = np.clip(self.command_ranges["lin_vel_y"][1] + 0.2, 0., self.cfg.commands.max_lat_curriculum)
+            self.command_ranges["lin_vel_x"][0] = np.clip(self.command_ranges["lin_vel_x"][0] - 0.1, -self.cfg.commands.max_backward_curriculum, 0.)
+            self.command_ranges["lin_vel_x"][1] = np.clip(self.command_ranges["lin_vel_x"][1] + 0.1, 0., self.cfg.commands.max_forward_curriculum)
+            self.command_ranges["lin_vel_y"][0] = np.clip(self.command_ranges["lin_vel_y"][0] - 0.1, -self.cfg.commands.max_lat_curriculum, 0.)
+            self.command_ranges["lin_vel_y"][1] = np.clip(self.command_ranges["lin_vel_y"][1] + 0.1, 0., self.cfg.commands.max_lat_curriculum)
 
 
     def _get_noise_scale_vec(self, cfg):

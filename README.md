@@ -42,10 +42,10 @@
   - `python legged_gym/legged_gym/scripts/train --task aliengo_stairs --resume --load_run Jul29_14-35-18_ --headless`
 
 
-* to use amp, modify [legged_robot_config.py](legged_gym/legged_gym/envs/base/legged_robot_config.py), train scripts same with above
-```python
-USING_AMP = True
-```
+* use amp
+  - modify [legged_robot_config.py](legged_gym/legged_gym/envs/base/legged_robot_config.py) with USING_AMP = True
+  - 2-stage train scripts same with above, but recommand using the 1-stage method (set resume = False). 
+
 
 2. Play and export the latest policy:
    - `python legged_gym/legged_gym/scripts/play.py --task aliengo --load_run <run_name> --load_cfg`
@@ -54,3 +54,6 @@ USING_AMP = True
    - train 2-stage with USING_AMP and play with ramdom vel_x from -2.0 to 2.0, yaw from -1.0 to 1.0:
    - ![amp_2stage.gif](projects/assets/amp_2stage.gif)
    - some pretrained weights [link](https://drive.google.com/drive/folders/1BSknmyXVngnZQTRyra1fTVmoVvp5cZWq?usp=sharing)
+
+# Deploy
+- see [link](https://github.com/xyyandhtl/LeggedControl.git)

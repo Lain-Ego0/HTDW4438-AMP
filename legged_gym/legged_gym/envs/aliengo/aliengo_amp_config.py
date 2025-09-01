@@ -45,7 +45,7 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
         num_envs = 4096  # 并行仿真的环境数量（需根据GPU显存调整）
         num_one_step_observations = 45  # 单步 观测向量 维度（原始传感器数据）
         num_observations = num_one_step_observations * 6    # 总 观测向量 维度（含6步历史）
-        num_one_step_privileged_obs = 45 + 3 + 3 + 187  # 单步 特权观测向量 维度，包含外部力（3维力+3维力矩）和地形扫描（187个点）
+        num_one_step_privileged_obs = 45 + 3 + 3 + 187  # 单步 特权观测向量 维度，（+3维线速度 + 3维随机扰动力 + 地形扫描(187))
         num_privileged_obs = num_one_step_privileged_obs * 1    # 总 特权观测向量 维度，if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 12  # 动作空间维度（12个关节）
         env_spacing = 3.  # 环境之间的间距（单位：米），not used with heightfields/trimeshes
@@ -113,13 +113,13 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
         curriculum = True
         max_forward_curriculum = 3.0 if TRAIN_RUNNING else 2.0
         max_backward_curriculum = 1.0
-        max_lat_curriculum = 1.0
+        max_lat_curriculum = 1.0  # y_vel 限制 [-1.0, 1.0]
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
 
         class ranges( LeggedRobotCfg.commands.ranges ):
-            lin_vel_x = [-1.0, 1.0]  # min max [m/s]
+            lin_vel_x = [-0.5, 1.0]  # min max [m/s]
             lin_vel_y = [-0.5, 0.5]  # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]  # min max [rad/s]
             heading = [-math.pi, math.pi]
@@ -176,7 +176,7 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
         randomize_kd = True  # 是否 随机改变PD控制器的D增益（damping）
         kd_range = [0.9, 1.1]
 
-        # 重置时随机改变base的 位置（默认位置 +），默认x,y方向为 [-1, 1]，z方向为 0，若更改则为下面的
+        # 重置时随机改变base的 位置（初始位置 +），默认x,y方向为 [-1, 1]，z方向为 0，若更改则为下面的
         base_init_pos_range = dict(
             x=[-1.0, 1.0],
             y=[-1.0, 1.0],
@@ -188,7 +188,7 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
             pitch=[-0.75, 0.75],
             yaw=[-0.0, 0.0],
         )
-        # 重置时随机设置base的 线速度、角速度，默认为x,y,x,rool,pitch,roll方向 [-0.5, 0.5]，若更改则为下面的
+        # 重置时随机设置base的 线速度、角速度，默认x,y,x,rool,pitch,roll方向为 [-0.5, 0.5]，若更改则为下面的
         base_init_vel_range = dict(
             x=[-0.5, 0.5],
             y=[-0.5, 0.5],
@@ -198,7 +198,7 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
             yaw=[-0.5, 0.5],
         )
 
-        dof_init_pos_ratio_range = [0.5, 1.5]  # 重置时随机改变 关节初始位置（默认关节位置 *）
+        dof_init_pos_ratio_range = [0.5, 1.5]  # 重置时随机改变 关节初始位置（初始关节位置 *），默认为 [0.5, 1.5]
 
         randomize_dof_vel = True  # 重置时设置 关节初始速度
         dof_init_vel_range = [-1.0, 1.0]  # 默认为 [-1.0, 1.0]
@@ -345,7 +345,7 @@ class AlienGoRoughCfgPPO( LeggedRobotCfgPPO ):
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
 
-        amp_reward_coef = 0.05  # set to 0 means not use amp reward
+        amp_reward_coef = 0.02  # set to 0 means not use amp reward
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = 2000000
         amp_task_reward_lerp = 0.5
