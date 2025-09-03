@@ -86,14 +86,14 @@ class AlienGoStairsCfg( AlienGoRoughCfg ):
     class commands( AlienGoRoughCfg.commands ):
         curriculum = True
         max_forward_curriculum = 1.5  # x_vel 限制 [-1.0, 1.5]
-        max_backward_curriculum = 1.0
+        max_backward_curriculum = 1.5
         max_lat_curriculum = 1.0  # y_vel 限制 [-1.0, 1.0]
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
 
         class ranges( AlienGoRoughCfg.commands.ranges ):
-            lin_vel_x = [-0.5, 1.0]  # min max [m/s]
+            lin_vel_x = [-0.5, 0.5]  # min max [m/s]
             lin_vel_y = [-0.5, 0.5]  # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]  # min max [rad/s]
             heading = [-math.pi, math.pi]

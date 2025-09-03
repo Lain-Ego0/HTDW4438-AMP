@@ -118,9 +118,9 @@ def play(args, x_vel=1.0, y_vel=0.0, yaw_vel=0.0):
     env.set_camera(camera_position, lookat_position)
 
     # use random vel for each env
-    x_vel = 1.2  # x_vel
-    y_vel = 2 * y_vel * torch.rand(env.num_envs, device=env.device) - y_vel  # y_vel
-    yaw_vel = 0.0  # yaw_vel
+    x_vel = 2 * x_vel * torch.rand(env.num_envs, device=env.device) - x_vel
+    y_vel = 2 * y_vel * torch.rand(env.num_envs, device=env.device) - y_vel
+    yaw_vel = 2 * yaw_vel * torch.rand(env.num_envs, device=env.device) - yaw_vel
 
     for i in range(10 * int(env.max_episode_length)):
     
@@ -138,8 +138,8 @@ def play(args, x_vel=1.0, y_vel=0.0, yaw_vel=0.0):
         if MOVE_CAMERA:
             # camera_position += camera_vel * env.dt
             # env.set_camera(camera_position, camera_position + camera_direction)
-            lootat = env.root_states[50, :3]
-            camara_position = lootat.detach().cpu().numpy() + [0, 1, 0]
+            lootat = env.root_states[5, :3]
+            camara_position = lootat.detach().cpu().numpy() + [0, 2, 0]
             env.set_camera(camara_position, lootat)
 
         if i < stop_state_log:
