@@ -32,8 +32,6 @@ from pathlib import Path
 
 from .base_config import BaseConfig
 
-TRAIN_RUNNING = False   # 效果不好，无法训出想要的随速度指令变化的步态
-USING_AMP = False
 MOTION_FILES_DIR = Path(__file__).parent.parent.parent.parent.parent / 'datasets'
 
 # 使用AMP_for_Hardware官方数据集
@@ -57,6 +55,7 @@ class LeggedRobotCfg(BaseConfig):
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 20 # episode length in seconds
         reference_state_initialization = False  # initialize state from reference data
+        using_amp = False
 
     class terrain:
         mesh_type = 'trimesh' # "heightfield" # none, plane, heightfield or trimesh

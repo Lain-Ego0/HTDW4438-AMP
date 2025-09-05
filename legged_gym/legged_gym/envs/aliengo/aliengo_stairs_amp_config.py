@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
@@ -30,27 +30,27 @@
 import math
 import glob
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
-from legged_gym.envs.base.legged_robot_config import USING_AMP, MOTION_FILES_DIR, TRAIN_RUNNING
+from legged_gym.envs.base.legged_robot_config import MOTION_FILES_DIR
 
 MOTION_FILES = []
 MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/left*.txt')))
 MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/right*.txt')))
 MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/trot*.txt')))
-if TRAIN_RUNNING:
-    MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/pace*.txt')))
-    MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/canter*.txt')))
+# MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/pace*.txt')))
+# MOTION_FILES.extend(glob.glob(str(MOTION_FILES_DIR / 'mocap_motions_aliengo/canter*.txt')))
 
-class AlienGoRoughCfg( LeggedRobotCfg ):
+class AlienGoStairsAmpCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
         num_envs = 4096  # 并行仿真的环境数量（需根据GPU显存调整）
         num_one_step_observations = 45  # 单步 观测向量 维度（原始传感器数据）
         num_observations = num_one_step_observations * 6    # 总 观测向量 维度（含6步历史）
-        num_one_step_privileged_obs = 45 + 3 + 3 + 187  # 单步 特权观测向量 维度，包含外部力（3维力+3维力矩）和地形扫描（187个点）
+        num_one_step_privileged_obs = 45 + 3 + 3 + 187  # 单步 特权观测向量 维度，（+3维线速度 + 3维随机扰动力 + 地形扫描(187))
         num_privileged_obs = num_one_step_privileged_obs * 1    # 总 特权观测向量 维度，if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 12  # 动作空间维度（12个关节）
         env_spacing = 3.  # 环境之间的间距（单位：米），not used with heightfields/trimeshes
         send_timeouts = True  # 是否发送超时信号给算法，send time out information to the algorithm
         episode_length_s = 20  # 单次训练Episode的时长（秒），episode length in seconds
+        using_amp = True
 
     class init_state( LeggedRobotCfg.init_state ):
         pos = [0.0, 0.0, 0.50]   # 初始位置（x,y,z）单位：米
@@ -86,19 +86,19 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
         restitution = 0.
         # rough terrain only:
         measure_heights = True
-        measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] # 1mx1.6m rectangle (without center line)
+        measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]  # 1mx1.6m rectangle (without center line)
         measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
-        selected = False # select a unique terrain type and pass all arguments
-        terrain_kwargs = None # Dict of arguments for selected terrain
-        max_init_terrain_level = 5 # starting curriculum state
-        terrain_length = 8.
-        terrain_width = 8.
-        num_rows = 10 # number of terrain rows (levels)
-        num_cols = 20 # number of terrain cols (types)
+        selected = False  # select a unique terrain type and pass all arguments
+        terrain_kwargs = None  # Dict of arguments for selected terrain
+        max_init_terrain_level = 5  # starting curriculum state
+        terrain_length = 10.
+        terrain_width = 10.
+        num_rows = 10  # number of terrain rows (levels)
+        num_cols = 20  # number of terrain cols (types)
         # terrain types: [flat, rough, smooth_slope, rough_slope, stairs_up, stairs_down, discrete_obstacles, stepping_stones, pit, gap]
-        terrain_proportions = [0.3, 0.3, 0.2, 0.2]
+        terrain_proportions = [0.0, 0.0, 0.1, 0.1, 0.4, 0.3, 0.1, 0.0, 0.0, 0.0]
         # trimesh only:
-        slope_treshold = 0.75 # slopes above this threshold will be corrected to vertical surfaces
+        slope_treshold = 0.75  # slopes above this threshold will be corrected to vertical surfaces
 
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:
@@ -111,15 +111,15 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
 
     class commands( LeggedRobotCfg.commands ):
         curriculum = True
-        max_forward_curriculum = 3.0 if TRAIN_RUNNING else 2.0
+        max_forward_curriculum = 1.5  # x_vel 限制 [-1.0, 1.5]
         max_backward_curriculum = 1.0
-        max_lat_curriculum = 1.0
+        max_lat_curriculum = 1.0  # y_vel 限制 [-1.0, 1.0]
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
 
         class ranges( LeggedRobotCfg.commands.ranges ):
-            lin_vel_x = [-1.0, 1.0]  # min max [m/s]
+            lin_vel_x = [-0.5, 1.0]  # min max [m/s]
             lin_vel_y = [-0.5, 0.5]  # min max [m/s]
             ang_vel_yaw = [-1.0, 1.0]  # min max [rad/s]
             heading = [-math.pi, math.pi]
@@ -148,47 +148,51 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
         armature = 0.
         thickness = 0.01
 
+    class termination:
+        base_vel_violate_commands = True
+
+        out_of_border = True
+
+        fall_down = True
+
     class domain_rand:
         # startup
-        randomize_payload_mass = True  # 是否随机改变 base的质量（默认质量 ±）
+        randomize_payload_mass = True
         payload_mass_range = [0.0, 3.0]
 
-        randomize_com_displacement = True  # 是否随机改变 base的质心偏移（xyz）
+        randomize_com_displacement = True
         com_displacement_range = [-0.05, 0.05]
 
-        randomize_link_mass = False  # 是否随机更改env各刚体部位（除了base）的质量（默认质量 *）
+        randomize_link_mass = False
         link_mass_range = [0.9, 1.1]
 
-        # startup and reset
-        randomize_friction = True  # 是否随机化env各刚体部位的 摩擦系数
+        randomize_friction = True
         friction_range = [0.2, 1.25]
 
-        randomize_restitution = False  # 是否随机化env各刚体部位的 弹性系数
+        randomize_restitution = False
         restitution_range = [0., 1.0]
 
-        # reset
-        randomize_motor_strength = True  # 是否随机化env的电机强度（输出的actions *）
+        randomize_motor_strength = True
         motor_strength_range = [0.9, 1.1]
 
-        randomize_kp = True  # 是否 随机改变PD控制器的p增益（stiffness）
-        kp_range = [0.9, 1.1]
+        randomize_kp = True
+        kp_range = [0.8, 1.2]
 
-        randomize_kd = True  # 是否 随机改变PD控制器的D增益（damping）
-        kd_range = [0.9, 1.1]
+        randomize_kd = True
+        kd_range = [0.8, 1.2]
 
-        # 重置时随机改变base的 位置（默认位置 +），默认x,y方向为 [-1, 1]，z方向为 0，若更改则为下面的
         base_init_pos_range = dict(
             x=[-1.0, 1.0],
             y=[-1.0, 1.0],
             z=[0.0, 0.05],
         )
-        # 重置时随机设置base的 方向（摔倒恢复模式都设为 [-3.14, 3.14]）
+
         base_init_rot_range = dict(
-            roll=[-0.75, 0.75],
-            pitch=[-0.75, 0.75],
+            roll=[-0.2, 0.2],
+            pitch=[-0.2, 0.2],
             yaw=[-0.0, 0.0],
         )
-        # 重置时随机设置base的 线速度、角速度，默认为x,y,x,rool,pitch,roll方向 [-0.5, 0.5]，若更改则为下面的
+
         base_init_vel_range = dict(
             x=[-0.5, 0.5],
             y=[-0.5, 0.5],
@@ -198,83 +202,79 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
             yaw=[-0.5, 0.5],
         )
 
-        dof_init_pos_ratio_range = [0.5, 1.5]  # 重置时随机改变 关节初始位置（默认关节位置 *）
+        dof_init_pos_ratio_range = [0.5, 1.5]
 
-        randomize_dof_vel = True  # 重置时设置 关节初始速度
-        dof_init_vel_range = [-1.0, 1.0]  # 默认为 [-1.0, 1.0]
+        randomize_dof_vel = True
+        dof_init_vel_range = [-0.1, 0.1]
 
-        # interval
-        disturbance = True  # 是否给base施加一个随机扰动力（xyz方向）
+        disturbance = True
         disturbance_range = [-30.0, 30.0]  # N
         disturbance_interval = 8
 
-        push_robots = True  # 是否给base在水平方向施加一个线速度
-        push_interval_s = 16  # step间隔 [s]
-        max_push_vel_xy = 1.  # 施加的最大线速度 [1m/s]
+        push_robots = True
+        push_interval_s = 16
+        max_push_vel_xy = 1.
 
-        delay = True  # actions是否随机延迟一个 policy_dt
+        delay = True
 
-        recover_mode = False  # 是否开启摔倒恢复模式
+        recover_mode = False
 
     class rewards( LeggedRobotCfg.rewards ):
         class scales:
             # general
-            termination = -0.0  # 仿真终止时的惩罚：未启用。设为负值（如-10.0）可在跌倒时给予额外惩罚
+            termination = -100.
             # velocity-tracking
-            tracking_lin_vel = 1.5  # commands 中XY方向的 线速度跟踪 奖励 (>= 0.1m/s时)
-            tracking_ang_vel = 1.5  # commands 中yaw方向的 角速度跟踪 奖励
+            tracking_lin_vel = 1.5
+            tracking_ang_vel = 1.5
             # root
-            lin_vel_z = -2.0  # base 的 Z 轴线速度 惩罚：防止机身跳跃
-            ang_vel_xy = -0.05  # base 的 XY 轴角速度 惩罚：抑制机身翻滚（roll, pitch）
-            orientation = -2.0  # base 非水平姿态 惩罚（地面不平时，可减小）
-            base_height = -5.0  # base 目标高度 惩罚
+            lin_vel_z = -2.0
+            ang_vel_xy = -0.05
+            orientation = -0.2
+            base_height = -1.0
             # joint
-            torques = -0.0002  # 关节扭矩过大 惩罚
-            torque_limits = -0.0  # 关节扭矩接近极限 惩罚
-            dof_vel = -0.0  # 关节速度过大 惩罚
-            dof_acc = -2.5e-7  # 关节加速度 惩罚（若步态抖动，可增大惩罚）
-            stand_still = -0.1  # (base原地不动 或 原地旋转) 时的 关节位置与默认关节位置的 偏差 惩罚
-            hip_pos = -0.2  # hip关节位置与默认位置的 偏差 惩罚，(原地不动 或 原地旋转) 时惩罚系数为 5.0，其他为 1.0
+            torques = -0.0001
+            torque_limits = -0.0
+            dof_vel = -0.0
+            dof_acc = -2.5e-7
+            stand_still = -0.1
+            hip_pos = -0.12
             thigh_pose = -0.05
-            calf_pose = -0.05
-            # hip_pos = -0.04 if USING_AMP else -0.2
-            # thigh_pose = -0.02 if USING_AMP else -0.1
-            # calf_pose = -0.02 if USING_AMP else -0.1
-            dof_pos_limits = -0.0  # 关节位置接近极限 惩罚
-            dof_vel_limits = -0.0  # 关节速度接近极限 惩罚
-            joint_power = -2e-5  # 关节高功率 惩罚：降低能耗（需平衡运动效率，过高惩罚会导致动作迟缓）
-            feet_mirror = -0.05  # 斜对称腿的关节位置偏差 惩罚
+            calf_pose = -0.03
+            dof_pos_limits = -0.0
+            dof_vel_limits = -0.0
+            joint_power = -3e-5
+            feet_mirror = -0.05
             # action
-            action_rate = -0.02  # action变化 惩罚
-            smoothness = -0.01  # action二阶平滑性 惩罚（复杂地形，可适当降低）
-            hip_action_magnitude = -0.0  # action 中的 髋关节hip（0,3,6,9）动作幅度 惩罚（防止 > 1.0）
+            action_rate = -0.05
+            smoothness = -0.02
+            hip_action_magnitude = -0.0
             # contact
-            collision = -0.0  # 指定关节的碰撞 惩罚。检测超过 max_contact_force (100N) 的接触，设为负值（如-0.1）可防硬件过载
-            feet_contact_forces = -0.00015  # 四足的接触力 > 100N 惩罚
+            collision = -5.0
+            feet_contact_forces = -0.00015
             # others
-            feet_air_time = 0.25  # 四足的空中时间接近0.5s 奖励 (原地不动时除外)
-            has_contact = 0.0  # (base 原地不动) 时的 四足触地个数 奖励
-            feet_stumble = -0.0  # 四足接触到垂直表面 惩罚
-            feet_slide = -0.01  # 脚接触地面具有相对base的速度 惩罚
-            feet_clearance_base = -0.1  # 大速度下 四足距base目标距离 惩罚
-            feet_clearance_terrain = -0.0  # 大速度下 四足离地目标高度 惩罚
+            feet_air_time = 0.25
+            has_contact = 2.0
+            feet_stumble = -2.0
+            feet_slide = -0.01
+            feet_clearance_base = -0.0
+            feet_clearance_terrain = -0.0
             feet_yaw_clearance_terrain = 1.0  # (base原地旋转) 时 脚抬起
-            stuck = -0.01  # base 卡住 惩罚
-            upward = 0.0  # 重力投影向下 奖励（恢复训练时开启）
+            stuck = -1.
+            upward = 0.0
 
         reward_curriculum = False
         reward_curriculum_term = ["feet_edge"]
         reward_curriculum_schedule = [[4000, 10000, 0.1, 1.0]]
 
-        only_positive_rewards = False   # 负奖励保留：为True时总奖励不低于零，避免早期训练频繁终止。复杂任务建议保持False
-        tracking_sigma = 0.25   # 跟踪奖励的高斯分布标准差 = exp(-error^2 / sigma)
-        soft_dof_pos_limit = 0.95   # 关节位置软限位：关节角度超过URDF限位95%时触发惩罚。调低（如0.9）可提前约束
-        soft_dof_vel_limit = 0.95   # 关节速度软限位：超过最大速度95%时惩罚。保护电机模型不过载
-        soft_torque_limit = 0.95    # 关节力矩软限位：超过额定扭矩95%时惩罚。防止仿真数值发散
-        base_height_target = 0.43   # 机身目标高度
-        feet_height_target_base = -0.27  # 足部距base的 相对距离目标（抬脚高度为0.15 以适应台阶地形）
-        feet_height_target_terrain = 0.15  # 足部离地高度目标
-        max_contact_force = 100.    # 四足接触力 > 100N 时触发惩罚的阈值
+        only_positive_rewards = False  # if true negative total rewards are clipped at zero (avoids early termination problems)
+        tracking_sigma = 0.20  # tracking reward = exp(-error^2/sigma)
+        soft_dof_pos_limit = 0.95  # percentage of urdf limits, values above this limit are penalized
+        soft_dof_vel_limit = 0.95
+        soft_torque_limit = 0.95
+        base_height_target = 0.45
+        feet_height_target_base = -0.30
+        feet_height_target_terrain = 0.15
+        max_contact_force = 100.  # forces above this value are penalized
 
     class normalization:
         class obs_scales:
@@ -298,7 +298,7 @@ class AlienGoRoughCfg( LeggedRobotCfg ):
             height_measurements = 0.1
 
 
-class AlienGoRoughCfgPPO( LeggedRobotCfgPPO ):
+class AlienGoStairsAmpCfgPPO( LeggedRobotCfgPPO ):
     seed = 1
     runner_class_name = 'HybridPolicyRunner'
 
@@ -334,18 +334,18 @@ class AlienGoRoughCfgPPO( LeggedRobotCfgPPO ):
         policy_class_name = 'HIMActorCritic'
         algorithm_class_name = 'HybridPPO'
         num_steps_per_env = 100  # per iteration
-        max_iterations = 3000 if TRAIN_RUNNING else 1000  # number of policy updates
+        max_iterations = 5000  # number of policy updates
 
         # logging
-        save_interval = 100  # check for potential saves every this many iterations
-        experiment_name = 'flat_aliengo'
+        save_interval = 200  # check for potential saves every this many iterations
+        experiment_name = 'stairs_aliengo'
         run_name = ''
         # load and resume
         resume = False
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
 
-        amp_reward_coef = 0.05  # set to 0 means not use amp reward
+        amp_reward_coef = 0.02  # set to 0 means not use amp reward
         amp_motion_files = MOTION_FILES
         amp_num_preload_transitions = 2000000
         amp_task_reward_lerp = 0.5

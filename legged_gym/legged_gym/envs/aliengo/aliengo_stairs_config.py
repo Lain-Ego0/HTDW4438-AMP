@@ -29,12 +29,8 @@
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 import math
 from os import path as osp
-from legged_gym.envs.base.legged_robot_config import USING_AMP
 
-if USING_AMP:
-    from legged_gym.envs.aliengo.aliengo_amp_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
-else:
-    from legged_gym.envs.aliengo.aliengo_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
+from legged_gym.envs.aliengo.aliengo_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
 
 
 class AlienGoStairsCfg( AlienGoRoughCfg ):
@@ -130,7 +126,6 @@ class AlienGoStairsCfg( AlienGoRoughCfg ):
         randomize_kd = True
         kd_range = [0.8, 1.2]
 
-
         base_init_pos_range = dict(
             x=[-1.0, 1.0],
             y=[-1.0, 1.0],
@@ -178,7 +173,7 @@ class AlienGoStairsCfg( AlienGoRoughCfg ):
             lin_vel_z = -2.0
             ang_vel_xy = -0.05
             orientation = -0.2
-            base_height = -5.0  # -0.0 if USING_AMP else -5.0
+            base_height = -5.0
             # joint
             torques = -0.0001
             torque_limits = -0.0

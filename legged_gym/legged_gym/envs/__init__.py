@@ -31,16 +31,13 @@
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 
 from .base.legged_robot import LeggedRobot
-from .base.legged_robot_config import USING_AMP
 from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO
 from .a1.a1_stairs_config import A1StairsCfg, A1StairsCfgPPO
 from .go1.go1_config import Go1RoughCfg, Go1RoughCfgPPO
 
-if USING_AMP:
-    from .aliengo.aliengo_amp_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
-else:
-    from .aliengo.aliengo_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
+from .aliengo.aliengo_config import AlienGoRoughCfg, AlienGoRoughCfgPPO
 from .aliengo.aliengo_stairs_config import AlienGoStairsCfg, AlienGoStairsCfgPPO
+from .aliengo.aliengo_stairs_amp_config import AlienGoStairsAmpCfg, AlienGoStairsAmpCfgPPO
 from .aliengo.aliengo_recover_config import AlienGoRoughRecoverCfg, AlienGoRoughRecoverCfgPPO
 from .aliengo.aliengo_lidar_config import AlienGoFlatLidarCfg, AlienGoFlatLidarCfgPPO
 
@@ -52,6 +49,7 @@ task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
 task_registry.register( "a1_stairs", LeggedRobot, A1StairsCfg(), A1StairsCfgPPO() )
 task_registry.register( "go1", LeggedRobot, Go1RoughCfg(), Go1RoughCfgPPO() )
 task_registry.register( "aliengo", LeggedRobot, AlienGoRoughCfg(), AlienGoRoughCfgPPO() )
-task_registry.register("aliengo_lidar", LeggedRobot, AlienGoFlatLidarCfg(), AlienGoFlatLidarCfgPPO())
 task_registry.register( "aliengo_stairs", LeggedRobot, AlienGoStairsCfg(), AlienGoStairsCfgPPO() )
+task_registry.register( "aliengo_stairs_amp", LeggedRobot, AlienGoStairsAmpCfg(), AlienGoStairsAmpCfgPPO() )
 task_registry.register( "aliengo_recover", LeggedRobot, AlienGoRoughRecoverCfg(), AlienGoRoughRecoverCfgPPO() )
+task_registry.register("aliengo_lidar", LeggedRobot, AlienGoFlatLidarCfg(), AlienGoFlatLidarCfgPPO())

@@ -32,8 +32,10 @@ import sys
 from pathlib import Path
 LEGGED_GYM_ROOT_DIR = str(Path(__file__).resolve().parent.parent.parent)
 RSL_RL_ROOT_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / 'rsl_rl')
+LidarSensor_DIR = str(Path(__file__).resolve().parent.parent.parent.parent / 'LidarSensor')
 sys.path.append(LEGGED_GYM_ROOT_DIR)
 sys.path.append(RSL_RL_ROOT_DIR)
+sys.path.append(LidarSensor_DIR)
 
 import numpy as np
 import os
