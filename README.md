@@ -40,16 +40,14 @@
     or 
   - `python legged_gym/legged_gym/scripts/train --task aliengo_stairs --resume --load_run Jul29_14-35-18_ --headless`
 
-
 * use amp
-  - modify [legged_robot_config.py](legged_gym/legged_gym/envs/base/legged_robot_config.py) with USING_AMP = True
-  - 2-stage train scripts same with above, but recommand using the 1-stage method (set resume = False). 
+  - recommand direct 1-stage training (see [aliengo_stairs_amp_config.py](legged_gym/legged_gym/envs/aliengo/aliengo_stairs_amp_config.py)):
+  - `python legged_gym/legged_gym/scripts/train.py --task aliengo_stairs_amp --headless`
 
 
 2. Play and export the latest policy:
    - `python legged_gym/legged_gym/scripts/play.py --task aliengo --load_run <run_name> --load_cfg`
    - `python legged_gym/legged_gym/scripts/play.py --task aliengo_stairs --load_run <run_name> --load_cfg`
-   - ![train_levels_curve.png](projects/assets/train_levels_curve.png)
-   - train 2-stage with USING_AMP and play with random vel_x from -2.0 to 2.0, yaw from -1.0 to 1.0:
+   - train aliengo_stairs_amp and play with random vel_x from -2.0 to 2.0, yaw from -1.0 to 1.0:
    - ![amp_2stage.gif](projects/assets/amp_2stage.gif)
    - some pretrained weights [link](https://drive.google.com/drive/folders/1BSknmyXVngnZQTRyra1fTVmoVvp5cZWq?usp=sharing)
