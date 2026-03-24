@@ -40,6 +40,7 @@ from .aliengo.aliengo_stairs_config import AlienGoStairsCfg, AlienGoStairsCfgPPO
 from .aliengo.aliengo_stairs_amp_config import AlienGoStairsAmpCfg, AlienGoStairsAmpCfgPPO
 from .aliengo.aliengo_recover_config import AlienGoRoughRecoverCfg, AlienGoRoughRecoverCfgPPO
 from .aliengo.aliengo_lidar_config import AlienGoFlatLidarCfg, AlienGoFlatLidarCfgPPO
+from .htdw_4438.htdw_4438_config import HTDW4438RoughCfg, HTDW4438RoughCfgPPO
 
 import os
 
@@ -53,3 +54,4 @@ task_registry.register( "aliengo_stairs", LeggedRobot, AlienGoStairsCfg(), Alien
 task_registry.register( "aliengo_stairs_amp", LeggedRobot, AlienGoStairsAmpCfg(), AlienGoStairsAmpCfgPPO() )
 task_registry.register( "aliengo_recover", LeggedRobot, AlienGoRoughRecoverCfg(), AlienGoRoughRecoverCfgPPO() )
 task_registry.register("aliengo_lidar", LeggedRobot, AlienGoFlatLidarCfg(), AlienGoFlatLidarCfgPPO())
+task_registry.register("htdw_4438", LeggedRobot, HTDW4438RoughCfg(), HTDW4438RoughCfgPPO())
