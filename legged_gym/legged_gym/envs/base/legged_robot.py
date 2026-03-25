@@ -1864,6 +1864,67 @@ class LeggedRobot(BaseTask):
         diff2 = torch.sum(torch.square(self.dof_pos[:, [4, 5]] - self.dof_pos[:, [7, 8]]),dim=-1)
         return 0.5 * (diff1 + diff2) * torch.clamp(-self.projected_gravity[:, 2], 0, 1)
 
+    def _reward_default_pos_linear(self):
+        # 线性默认姿态惩罚：L1 关节偏差，提供稳定梯度。
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
+
+    def _reward_base_height_linear(self):
+        # 保持与 HIMloco 兼容的 reward 名称。
+        base_height = self._get_base_heights()
+        return torch.square((base_height - self.cfg.rewards.base_height_target) * 100.0)
+
+    def _reward_foot_clearance(self):
+        # 与 HIMloco 保持一致：惩罚抬脚高度偏离目标，按足部横向速度加权。
+        cur_footpos_translated = self.feet_pos - self.root_states[:, 0:3].unsqueeze(1)
+        cur_footvel_translated = self.feet_vel - self.root_states[:, 7:10].unsqueeze(1)
+        footpos_in_body_frame = torch.zeros(self.num_envs, len(self.feet_indices), 3, device=self.device)
+        footvel_in_body_frame = torch.zeros(self.num_envs, len(self.feet_indices), 3, device=self.device)
+        for i in range(len(self.feet_indices)):
+            footpos_in_body_frame[:, i, :] = quat_rotate_inverse(self.base_quat, cur_footpos_translated[:, i, :])
+            footvel_in_body_frame[:, i, :] = quat_rotate_inverse(self.base_quat, cur_footvel_translated[:, i, :])
+
+        height_error = torch.square(footpos_in_body_frame[:, :, 2] - self.cfg.rewards.clearance_height_target).view(self.num_envs, -1)
+        foot_lateral_vel = torch.sqrt(torch.sum(torch.square(footvel_in_body_frame[:, :, :2]), dim=2)).view(self.num_envs, -1)
+        return torch.sum(height_error * foot_lateral_vel, dim=1)
+
+    def _reward_diagonal_sync(self):
+        # 惩罚对角腿触地状态不同步，鼓励 trot 节律。
+        contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
+        sync_error = torch.abs(contact[:, 0].float() - contact[:, 3].float()) + \
+            torch.abs(contact[:, 1].float() - contact[:, 2].float())
+        return sync_error
+
+    def _reward_hip_mirror_symmetry(self):
+        # 奖励髋关节左右镜像（实现为误差惩罚）。
+        hip_indices = [i for i, name in enumerate(self.dof_names) if "hip_joint" in name]
+        if len(hip_indices) < 4:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        fl_idx, fr_idx, rl_idx, rr_idx = None, None, None, None
+        for idx in hip_indices:
+            name = self.dof_names[idx]
+            if "fl_hip" in name or "LF_hip" in name or "front_left_hip" in name:
+                fl_idx = idx
+            elif "fr_hip" in name or "RF_hip" in name or "front_right_hip" in name:
+                fr_idx = idx
+            elif "rl_hip" in name or "LH_hip" in name or "rear_left_hip" in name or "hind_left_hip" in name:
+                rl_idx = idx
+            elif "rr_hip" in name or "RH_hip" in name or "rear_right_hip" in name or "hind_right_hip" in name:
+                rr_idx = idx
+
+        if None in [fl_idx, fr_idx, rl_idx, rr_idx]:
+            return torch.zeros(self.num_envs, device=self.device)
+
+        fl_angle = self.dof_pos[:, fl_idx]
+        fr_angle = self.dof_pos[:, fr_idx]
+        rl_angle = self.dof_pos[:, rl_idx]
+        rr_angle = self.dof_pos[:, rr_idx]
+
+        front_mirror_error = torch.abs(fl_angle + fr_angle)
+        rear_mirror_error = torch.abs(rl_angle + rr_angle)
+        total_error = front_mirror_error + rear_mirror_error
+        return torch.square(total_error * 10.0)
+
     # --- stand, stuck ---
     def _reward_stand_still(self):
         # 惩罚 (base原地不动 或 原地旋转) 时的 关节位置与默认关节位置的 偏差
