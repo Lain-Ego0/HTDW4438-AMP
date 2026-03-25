@@ -32,7 +32,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 
 class AlienGoRoughCfg( LeggedRobotCfg ):
     class env( LeggedRobotCfg.env ):
-        num_envs = 4096  # 并行仿真的环境数量（需根据GPU显存调整）
+        num_envs = 2048  # 并行仿真的环境数量（需根据GPU显存调整）
         num_one_step_observations = 45  # 单步 观测向量 维度（原始传感器数据）
         num_observations = num_one_step_observations * 6    # 总 观测向量 维度（含6步历史）
         num_one_step_privileged_obs = 45 + 3 + 3 + 187  # 单步 特权观测向量 维度，（+3维线速度 + 3维随机扰动力 + 地形扫描(187))
